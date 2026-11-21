@@ -1,0 +1,103 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Refuse the organisation's private terms (the DATA_LEAK_DENYLIST secret) in this event's commits:
+  # added lines, file paths, commit messages and authors.
+  data-leak-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: kilotronic/data-leak-check@f1da8a7ce76bfaabd70ea815d9417fb691e95799 # v1.1.0
+        with:
+          denylist: ${{ secrets.DATA_LEAK_DENYLIST }}
+
+  # Secrets in this event's commits: gitleaks (anything shaped like a secret) and trufflehog (keys that still
+  # work), from kilotronic/secret-scan.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: kilotronic/secret-scan@2665d6f2f0260d3ae0defbedcce27fc63ad6a168 # v1.2.1
+
+  # Shell scripts, workflows, and actions and base images pinned by commit and digest, from kilotronic/lint.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: kilotronic/lint@57c42f430af9a89607e32d1947714e2e594db6f3 # v1.2.0
+
+  # Real authors on this event's commits, in the owner's domains, from kilotronic/git-identity.
+  git-identity:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # allow-bots on a push asks which pull request a commit merged
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: kilotronic/git-identity@b0d54e809d81cabf61d357cbe519a9b9263b17cb # v2.4.0
+        with:
+          domains: ixid.net, kilotronic.com
+          allow-bots: dependabot
+          commit-subject: true
+
+  # ruff, pyright (strict) and the tests.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      - run: uv run pytest
+
+  # The format and lint bundle from .pre-commit-config.yaml (formatters, ruff, markdownlint, yamllint, ...),
+  # the same hooks a commit runs. The identity, secret and private-term hooks run as their own jobs.
+  prek:
+    name: Format and lint (prek)
+    runs-on: ubuntu-latest
+    env:
+      SKIP: git-identity,commit-subject,session-trailer,secret-scan,secret-scan-push,data-leak-check,data-leak-check-commit-msg,data-leak-check-pre-push
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: pipx run prek==0.5.11 run --all-files --show-diff-on-failure
+
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    needs: [data-leak-check, secret-scan, lint, git-identity, test, prek]
+    if: always()
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for r in $RESULTS; do test "$r" = success; done
