@@ -4,6 +4,6 @@
   "description": "The JavaScript test runners the planted examples run under.",
   "devDependencies": {
     "jest": "30.5.2",
-    "vitest": "5.1.0"
+    "vitest": "5.1.1"
   }
 }
