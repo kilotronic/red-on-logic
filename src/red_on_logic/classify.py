@@ -55,8 +55,12 @@ JS_SHAPE = re.compile(
 
 # pytest's own failures that say nothing about the code under test: an unsupported test
 # shape (an async test with no plugin) or a plugin's timeout.
-PY_NOT_LOGIC = re.compile(r"not natively supported|^Timeout\b|[Tt]imed? ?out")
-JS_TIMEOUT = re.compile(r"[Tt]imed out|[Ee]xceeded timeout|timeout of \d+ ?ms")
+PY_NOT_LOGIC = re.compile(r"not natively supported|^Timeout >")
+# Each runner's own words for a test that ran out of time; never an assertion's text.
+JS_TIMEOUT = re.compile(
+    r"^(Error: )?(Test timed out in \d+ ?ms|test timed out after \d+ ?ms)"
+    r"|Exceeded timeout of \d+ ?ms for a (test|hook)"
+)
 
 
 def python_kind(exc: str, message: str, *, assertion: bool) -> str:
@@ -76,10 +80,10 @@ def python_kind(exc: str, message: str, *, assertion: bool) -> str:
 def js_kind(message: str) -> str:
     """`message` is the failure's first line, `Type: text`, as vitest, jest and node print it."""
     first = message.strip().splitlines()[0] if message.strip() else ""
-    if JS_TIMEOUT.search(first):
-        return "shape"
     if JS_ASSERTION.search(first):
         return "assertion"
+    if JS_TIMEOUT.search(first):
+        return "shape"
     if JS_SHAPE.search(first):
         return "shape"
     return "crash"

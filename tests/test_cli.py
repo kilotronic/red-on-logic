@@ -197,3 +197,22 @@ def test_a_moved_head_is_not_reset(planted: Planted, monkeypatch: pytest.MonkeyP
 
     assert code == 2
     assert git(planted.root, "rev-parse", "main") == main_before
+
+
+def test_code_paths_swap_a_template(planted: Planted) -> None:
+    planted.write("greet.txt", "hello {}\n")
+    planted.write("greet.py", "def greet(n):\n    return open('greet.txt').read().format(n)\n")
+    planted.base()
+    planted.write("greet.txt", "hi {}\n")
+    planted.write(
+        "tests/test_greet.py",
+        "from greet import greet\n\n\ndef test_hi():\n    assert greet('a') == 'hi a\\n'\n",
+    )
+    planted.commit("fix")
+
+    vacuous, _, _ = planted.run("--pytest", PYTEST)
+    proven, report, text = planted.run("--pytest", PYTEST, "--code-paths", "*.txt")
+
+    assert vacuous == 1
+    assert proven == 0, text
+    assert report["result"] == "proven"

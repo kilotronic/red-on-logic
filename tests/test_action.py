@@ -116,7 +116,9 @@ def test_a_merge_checkout_judges_against_its_first_parent(planted: Planted, tmp_
     git(planted.root, "merge", "-q", "--no-ff", "-m", "Merge", pr_head)
     git(planted.root, "checkout", "-q", "--detach", "HEAD")
 
-    code, output, _ = _step(planted, tmp_path, BASE=stale, PR_HEAD=pr_head, PYTEST_CMD=PYTEST)
+    code, output, _ = _step(
+        planted, tmp_path, BASE=stale, EVENT_BASE=stale, PR_HEAD=pr_head, PYTEST_CMD=PYTEST
+    )
 
     assert code == 0, output
     assert "red-on-logic: proven" in output
@@ -134,3 +136,20 @@ def test_a_label_that_looks_like_an_option_is_only_a_label(
 
     assert code == 0, output
     assert not (planted.root / "x").exists()
+
+
+def test_an_explicit_base_input_is_kept(planted: Planted, tmp_path: Path) -> None:
+    stale = _fix(planted)
+    pr_head = git(planted.root, "rev-parse", "HEAD").strip()
+    git(planted.root, "checkout", "-q", "main")
+    planted.write("other.py", "x = 1\n")
+    planted.commit("chore: other")
+    git(planted.root, "merge", "-q", "--no-ff", "-m", "Merge", pr_head)
+
+    # The workflow set `base` itself (not the event's base): it is used as given.
+    code, output, _ = _step(
+        planted, tmp_path, BASE=stale, EVENT_BASE="f" * 40, PR_HEAD=pr_head, PYTEST_CMD=PYTEST
+    )
+
+    assert code == 0, output
+    assert f"Base {stale[:12]}" in output

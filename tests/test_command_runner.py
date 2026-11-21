@@ -136,3 +136,19 @@ def test_junit_without_a_file_attribute_maps_the_classname(
 
     assert code == 0, text
     assert verdicts(report) == {"checks/test_calc.py::test_add": "proven"}
+
+
+def test_cases_from_other_files_are_not_credited(planted: Planted, tmp_path: Path) -> None:
+    # A command that ignores {files} reports another file's failing case: never this file's.
+    args = _setup(planted, tmp_path)
+    planted.write("checks/add.check", "add(5, 0) == 5\n")
+    planted.commit("fix")
+    args[3] = (
+        'printf \'<testsuite><testcase classname="other.suite" name="x">'
+        '<failure message="no"/></testcase></testsuite>\' > {junit}'
+    )
+
+    code, report, _ = planted.run(*args)
+
+    assert code == 1
+    assert "proven" not in [t["verdict"] for t in report["tests"]]

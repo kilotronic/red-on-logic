@@ -18,7 +18,8 @@ fi
 # actions/checkout of a pull request checks out GitHub's merge commit. Its first parent is
 # the base branch as merged, which may be newer than the event's base: judge against that
 # parent, so other people's commits on the base branch are never swapped or read for a skip.
-if [ -n "${PR_HEAD:-}" ] && [ "$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || true)" = "$PR_HEAD" ]; then
+# Only when `base` was left at the event's base: an explicit one is used as given.
+if [ -n "${PR_HEAD:-}" ] && [ "$BASE" = "${EVENT_BASE:-}" ] && [ "$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || true)" = "$PR_HEAD" ]; then
   BASE=$(git rev-parse 'HEAD^1')
 fi
 
@@ -29,6 +30,9 @@ args=("--base=$BASE" "--runner=${RUNNER:-auto}")
 [ -n "${NODE_CMD:-}" ] && args+=("--node=$NODE_CMD")
 [ -n "${RUN_CMD:-}" ] && args+=("--command=$RUN_CMD")
 [ -n "${WORKDIR:-}" ] && args+=("--working-directory=$WORKDIR")
+while IFS= read -r glob; do
+  [ -n "$glob" ] && args+=("--code-paths=$glob")
+done < <(printf '%s\n' "${CODE_PATHS:-}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 while IFS= read -r glob; do
   [ -n "$glob" ] && args+=("--test-paths=$glob")
 done < <(printf '%s\n' "${TEST_PATHS:-}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')

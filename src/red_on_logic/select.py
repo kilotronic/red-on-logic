@@ -21,11 +21,9 @@ TEST_DIRS = frozenset(
         "spec",
         "testdata",
         "testing",
-        "fixtures",
         "__fixtures__",
         "__mocks__",
         "__snapshots__",
-        "snapshots",
     }
 )
 # Only source files go back to the base's version. Data, snapshots, docs, lockfiles and
@@ -75,7 +73,15 @@ CODE_EXT = frozenset(
         ".pl",
     }
 )
-CONFIG_NAME = re.compile(r"^\.|\.config\.|(^|[._-])setup(tests?)?\.[^.]+$|^noxfile\.py$", re.I)
+# Test-runner and build-tool config, wherever it sits: dot files, `<tool>.config.*` and the
+# runners' setup files. `setup.py` and `noxfile.py` only at the repository root.
+CONFIG_NAME = re.compile(
+    r"^\.|^(jest|vitest|vite|babel|webpack|rollup|eslint|prettier|playwright|tsup|postcss"
+    r"|tailwind|svelte|next|nuxt|astro|karma|cypress|stylelint|commitlint|lint-staged)\.config\."
+    r"|^(jest|vitest|test)[.-]setup\.|^setupTests\.",
+    re.I,
+)
+ROOT_CONFIG = frozenset({"setup.py", "noxfile.py"})
 PY_NOISE = re.compile(r"^\s*(#.*)?$")
 JS_NOISE = re.compile(r"^\s*(//.*|/\*.*|\*.*)?$")
 JS_CALL = re.compile(r"""^\s*(?:test|it)(?:\.\w+)*\s*\(\s*(['"`])(.*?)\1""")
@@ -126,13 +132,17 @@ def is_test_side(path: str, extra: Sequence[str]) -> bool:
     )
 
 
-def is_code(path: str, extra: Sequence[str]) -> bool:
-    """A file the base run puts back to the base's version (or removes, when it is new)."""
+def is_code(path: str, extra: Sequence[str], code_paths: Sequence[str] = ()) -> bool:
+    """A file the base run puts back to the base's version (or removes, when it is new):
+    a source file that is neither test-side nor config, or one of `code_paths` (templates,
+    SQL, rules: behaviour kept in files without a source extension)."""
+    if is_test_side(path, extra):
+        return False
+    if matches_any(path, code_paths):
+        return True
     p = PurePosixPath(path)
     return (
-        not is_test_side(path, extra)
-        and p.suffix.lower() in CODE_EXT
-        and not CONFIG_NAME.search(p.name)
+        p.suffix.lower() in CODE_EXT and not CONFIG_NAME.search(p.name) and path not in ROOT_CONFIG
     )
 
 

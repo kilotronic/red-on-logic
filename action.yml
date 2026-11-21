@@ -9,7 +9,9 @@ branding:
 
 inputs:
   base:
-    description: The base commit. Default the pull request's base; on any other event, with no base, the step does nothing.
+    description: >-
+      The base commit. Default the pull request's base (on GitHub's merge checkout, the merge's first parent); on any
+      other event, with no base, the step does nothing. A base set here is used as given.
     required: false
     default: ${{ github.event.pull_request.base.sha }}
   runner:
@@ -46,6 +48,12 @@ inputs:
       only test files.
     required: false
     default: ""
+  code-paths:
+    description: >-
+      Globs of files that are code though not source, separated by commas or newlines (e.g. `templates/**`, `*.sql`):
+      they go back to the base's version too. By default only source files do; data and config stay at the head's.
+    required: false
+    default: ""
   working-directory:
     description: With a fixed `runner`, where it runs. Default the repository root.
     required: false
@@ -65,6 +73,8 @@ runs:
       env:
         BASE: ${{ inputs.base }}
         PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+        CODE_PATHS: ${{ inputs.code-paths }}
         RUNNER: ${{ inputs.runner }}
         PYTEST_CMD: ${{ inputs.pytest }}
         VITEST_CMD: ${{ inputs.vitest }}

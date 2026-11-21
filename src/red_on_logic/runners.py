@@ -337,7 +337,7 @@ def run_js(group: Group, root: Path, commands: Commands, scratch: Path) -> list[
 def _junit_file(case: ET.Element, cwd: Path, root: Path, files: tuple[str, ...]) -> str:
     """The test file a JUnit case belongs to: its `file` attribute, else its dotted
     `classname` matched to one of the run's files (`checks.test_calc` -> checks/test_calc.py),
-    else the run's only file."""
+    else, with no classname at all, the run's only file."""
     raw = case.get("file")
     if raw:
         return _rel(raw if Path(raw).is_absolute() else cwd / raw, root)
@@ -348,7 +348,7 @@ def _junit_file(case: ET.Element, cwd: Path, root: Path, files: tuple[str, ...])
             return f
     if classname and (cwd / classname).exists():
         return _rel(cwd / classname, root)
-    return files[0] if len(files) == 1 else classname
+    return files[0] if len(files) == 1 and not classname else classname
 
 
 def parse_junit(text: str, cwd: Path, root: Path, files: tuple[str, ...] = ()) -> list[Outcome]:

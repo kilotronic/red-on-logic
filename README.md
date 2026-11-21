@@ -15,9 +15,10 @@ and puts the checkout back; everything in the repository stays green.
 3. It puts every changed source file back to the base's version and removes source files the pull request added,
    then runs the same test files again. Everything else stays at the pull request's version: the test files, anything
    under a `tests`, `test`, `__tests__`, `spec`, `testdata`, `testing`, `fixtures`, `__fixtures__`, `__mocks__`,
-   `__snapshots__` or `snapshots` folder, `conftest.py`, and every file that is not source code (data, snapshots,
-   docs, lockfiles, `pyproject.toml`, `package.json`) or is config (`*.config.*`, dot files, `setup.py`,
-   `*.setup.*`). A missing data file or an older runner config would fail the base for a reason that is not the
+   or `__snapshots__` folder, `conftest.py`, and every file that is not source code (data, snapshots,
+   docs, lockfiles, `pyproject.toml`, `package.json`) or is test or build config (dot files, `jest.config.*`, `vitest.config.*` and other tools' `<tool>.config.*`,
+   `jest.setup.*`, `setupTests.*`, and `setup.py` or `noxfile.py` at the root). Behaviour kept outside source
+   files (SQL, templates, rules) goes back too when the `code-paths` input names it. A missing data file or an older runner config would fail the base for a reason that is not the
    code under test.
 4. It puts the checkout back (`git reset --hard` to the head). It refuses to start with uncommitted changes to
    tracked files, or when an untracked file sits where the base run would write one; it does not reset when HEAD
@@ -147,7 +148,7 @@ input it does nothing. The result also goes to the job summary.
   `__tests__`), chosen from the nearest `package.json`'s dependencies, run from that folder.
 - **command** for anything else: any command that writes JUnit XML. A `<failure>` is a wrong answer, an `<error>` is
   red on import. A case belongs to the file its `file` attribute names, else the file its dotted `classname` names
-  (`checks.test_calc` is `checks/test_calc.py`), else the run's only file. JUnit has no line numbers, so every test
+  (`checks.test_calc` is `checks/test_calc.py`), else, for a case with no classname, the run's only file. JUnit has no line numbers, so every test
   in a changed file is judged.
 
 ## Use as a command
@@ -169,8 +170,8 @@ Do not edit files while it runs: the restore resets every tracked file to the he
 - In JavaScript, a name the base does not export usually imports as `undefined` instead of failing, so
   `expect(MAX).toBe(10)` against a new `export const MAX` fails with an assertion and reads as proof. Calling a
   missing function is caught (`is not a function`).
-- A changed data or config file stays at the head's version, so a test that pins only a data change reads as
-  proving nothing.
+- A changed data, template, SQL or config file stays at the head's version unless `code-paths` names it, so a test
+  that pins only such a change reads as proving nothing.
 - Code installed into the environment as a copy (not editable) is not swapped, so its tests pass on the base and
   read as proving nothing. Install the project editable, or run from source.
 - A build step between the code and the tests (a compiled extension, a bundle the tests import) is not re-run on the

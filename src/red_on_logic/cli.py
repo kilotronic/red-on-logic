@@ -104,10 +104,11 @@ def _branch(root: Path) -> str:
 
 
 def _restore(root: Path, head: str, branch: str, swapped: list[str]) -> None:
-    """Put the checkout back at the head, with stop signals held off until it is done.
+    """Put the checkout back at the head, with SIGTERM and SIGHUP held off until it is done
+    (Ctrl-C still stops a git that hangs).
     Refuses when HEAD or the branch moved during the run: a reset would move the new
     branch to this head."""
-    held = {s: signal.signal(s, signal.SIG_IGN) for s in (signal.SIGINT, *STOP_SIGNALS)}
+    held = {s: signal.signal(s, signal.SIG_IGN) for s in STOP_SIGNALS}
     try:
         now = git(root, "rev-parse", "HEAD").strip()
         if now != head or _branch(root) != branch:
@@ -238,7 +239,7 @@ def check(args: argparse.Namespace) -> Report:
         tests = [p for s, p in changes if s != "D" and matches_any(p, extra)]
     else:
         tests = [p for s, p in changes if s != "D" and is_test_file(p, extra)]
-    code = [(s, p) for s, p in changes if is_code(p, extra)]
+    code = [(s, p) for s, p in changes if is_code(p, extra, tuple(args.code_paths))]
     report = Report("no-tests", base, head, changes_code=bool(code), test_files=len(tests))
     if not tests:
         return report
@@ -336,6 +337,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         action="append",
         default=[],
         help="a glob of more test files (repeatable); with --runner command, the only ones",
+    )
+    p.add_argument(
+        "--code-paths",
+        action="append",
+        default=[],
+        help="a glob of files that are code though not source (templates, SQL); repeatable",
     )
     p.add_argument("--working-directory", help="with --runner, where the runner runs")
     p.add_argument("--label", action="append", default=[], help="a pull request label (repeatable)")

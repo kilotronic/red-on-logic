@@ -7,6 +7,7 @@ import pytest
 from red_on_logic.classify import js_kind, python_kind
 from red_on_logic.select import (
     hunk_lines,
+    is_code,
     is_test_file,
     is_test_side,
     js_touched,
@@ -51,6 +52,39 @@ def test_hunk_lines() -> None:
 )
 def test_is_test_file(path: str, want: bool) -> None:
     assert is_test_file(path, ()) is want
+
+
+@pytest.mark.parametrize(
+    ("path", "want"),
+    [
+        ("src/calc.py", True),
+        ("src/db_setup.py", True),
+        ("src/app-setup.ts", True),
+        ("src/user.setup.ts", True),
+        ("src/pkg/setup.py", True),
+        ("src/app/app.config.ts", True),
+        ("src/fixtures/loader.py", True),
+        ("src/snapshots/store.py", True),
+        ("setup.py", False),
+        ("noxfile.py", False),
+        ("vitest.config.ts", False),
+        ("web/jest.config.js", False),
+        ("jest.setup.js", False),
+        ("src/setupTests.ts", False),
+        (".eslintrc.js", False),
+        ("tests/fixtures/data.py", False),
+        ("pyproject.toml", False),
+        ("queries/get.sql", False),
+    ],
+)
+def test_is_code(path: str, want: bool) -> None:
+    assert is_code(path, (), ()) is want
+
+
+def test_code_paths_are_always_swapped() -> None:
+    assert is_code("queries/get.sql", (), ("queries/*.sql",))
+    assert is_code("bin/tool", (), ("bin/*",))
+    assert not is_code("tests/data.sql", (), ("*.sql",))
 
 
 def test_extra_test_paths() -> None:
@@ -184,7 +218,10 @@ def test_js_touched_finds_a_title_without_a_line() -> None:
         ("AttributeError", "<module 'calc' from '/x/calc.py'> has no attribute 'helper'", "shape"),
         ("AttributeError", "Mock object has no attribute 'g'", "shape"),
         ("Failed", "async def functions are not natively supported.", "shape"),
-        ("Failed", "Timeout (>1.0s) from pytest-timeout.", "shape"),
+        ("Failed", "Timeout > 1.0s", "shape"),
+        ("Failed", "DID NOT RAISE <class 'TimeoutError'>", "assertion"),
+        ("Failed", "the request timed out", "assertion"),
+        ("TimeoutError", "timed out", "crash"),
     ],
 )
 def test_python_kind(exc: str, message: str, want: str) -> None:
@@ -212,6 +249,9 @@ def test_python_kind(exc: str, message: str, want: str) -> None:
         ("Error: Test timed out in 5000ms.", "shape"),
         ('thrown: "Exceeded timeout of 5000 ms for a test.', "shape"),
         ("Error: test timed out after 100ms", "shape"),
+        ("test timed out after 100ms", "shape"),
+        ("AssertionError: expected 'timed out' to be 'ok'", "assertion"),
+        ("Error: Request timed out", "crash"),
     ],
 )
 def test_js_kind(message: str, want: str) -> None:
