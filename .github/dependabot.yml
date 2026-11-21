@@ -18,3 +18,10 @@ updates:
     groups:
       pre-commit-hooks:
         patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /tests/js
+    schedule:
+      interval: weekly
+    groups:
+      test-runners:
+        patterns: ["*"]

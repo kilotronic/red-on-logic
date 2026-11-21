@@ -1,0 +1,9 @@
+{
+  "name": "red-on-logic-test-runners",
+  "private": true,
+  "description": "The JavaScript test runners the planted examples run under.",
+  "devDependencies": {
+    "jest": "30.5.2",
+    "vitest": "5.1.0"
+  }
+}
