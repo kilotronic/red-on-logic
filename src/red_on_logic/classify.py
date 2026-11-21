@@ -71,8 +71,8 @@ SHAPE_ANYWHERE = re.compile(r"unrecognized arguments:|invalid choice:")
 def python_kind(exc: str, message: str, *, assertion: bool) -> str:
     """`exc` is the exception's type name; `assertion` whether it is an AssertionError or
     pytest's own failure (pytest.fail, pytest.raises that saw nothing)."""
-    if SHAPE_ANYWHERE.search(message):
-        return "shape"
+    if SHAPE_ANYWHERE.search(message) or (exc == "SystemExit" and message == "2"):
+        return "shape"  # exit 2: argparse refusing an option or command the base lacks
     if exc == "Failed" and PY_NOT_LOGIC.search(message):
         return "shape"
     if assertion:
