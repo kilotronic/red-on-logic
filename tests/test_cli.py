@@ -139,6 +139,8 @@ def test_an_unknown_base_is_a_tool_error(planted: Planted) -> None:
         ([], ["red-on-logic: not applicable (refactor)"], "refactor"),
         (["fix: mention red-on-logic: not applicable (x) inline"], [], None),
         (["fix"], ["bug"], None),
+        (["fix\n\nred-on-logic: not applicable here, see above"], [], None),
+        (["fix\n\n    red-on-logic: not applicable (indented prose)"], [], None),
     ],
 )
 def test_find_skip(messages: list[str], labels: list[str], reason: str | None) -> None:
@@ -149,3 +151,49 @@ def test_find_skip(messages: list[str], labels: list[str], reason: str | None) -
 def test_find_skip_refuses_an_empty_reason() -> None:
     with pytest.raises(SkipError, match="needs a reason"):
         find_skip([], ["red-on-logic: not applicable"])
+
+
+def test_find_skip_refuses_the_placeholder() -> None:
+    with pytest.raises(SkipError, match="needs a reason"):
+        find_skip(["x\n\nred-on-logic: not applicable (<reason>)"], [])
+
+
+def test_changed_test_files_with_no_changed_test_say_so(planted: Planted) -> None:
+    planted.write("calc.py", "def add(a, b):\n    return a + b\n")
+    planted.write(
+        "tests/test_calc.py",
+        "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n",
+    )
+    planted.base()
+    planted.write(
+        "tests/test_calc.py",
+        "from calc import add\n\n\ndef test_add():\n    # why\n    assert add(1, 2) == 3\n",
+    )
+    planted.commit("docs")
+
+    code, _, text = planted.run("--pytest", PYTEST)
+
+    assert code == 1
+    assert "no test in them changed" in text
+
+
+def test_a_moved_head_is_not_reset(planted: Planted, monkeypatch: pytest.MonkeyPatch) -> None:
+    import red_on_logic.cli as cli
+
+    _fix_with_test(planted)
+    real = cli._run_all  # pyright: ignore[reportPrivateUsage]
+    calls: list[int] = []
+
+    def run_all(*args: object, **kwargs: object) -> object:
+        calls.append(1)
+        if len(calls) == 2:
+            git(planted.root, "checkout", "-q", "main")
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cli, "_run_all", run_all)
+    main_before = git(planted.root, "rev-parse", "main")
+
+    code, _, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 2
+    assert git(planted.root, "rev-parse", "main") == main_before

@@ -64,6 +64,7 @@ runs:
       shell: bash
       env:
         BASE: ${{ inputs.base }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
         RUNNER: ${{ inputs.runner }}
         PYTEST_CMD: ${{ inputs.pytest }}
         VITEST_CMD: ${{ inputs.vitest }}

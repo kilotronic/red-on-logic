@@ -64,7 +64,10 @@ export default async function* reporter(source) {
         fileLevel &&
         data.nesting === 0 &&
         data.file &&
-        data.name === path.basename(data.file);
+        [
+          path.basename(data.file),
+          path.relative(process.cwd(), data.file),
+        ].includes(data.name);
       record.fileLevel = Boolean(isFile);
       record.message = isFile
         ? firstLine(

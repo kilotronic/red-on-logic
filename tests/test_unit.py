@@ -6,16 +6,16 @@ import pytest
 
 from red_on_logic.classify import js_kind, python_kind
 from red_on_logic.select import (
-    changed_lines,
+    hunk_lines,
     is_test_file,
     is_test_side,
     js_touched,
     python_touched,
 )
 
-DIFF = """diff --git a/tests/test_a.py b/tests/test_a.py
---- a/tests/test_a.py
-+++ b/tests/test_a.py
+DIFF = """diff --git "a/tests/t\\303\\251st a.py" "b/tests/t\\303\\251st a.py"
+--- "a/tests/t\\303\\251st a.py"
++++ "b/tests/t\\303\\251st a.py"
 @@ -3,0 +4,2 @@ def x():
 +    one
 +    two
@@ -25,19 +25,11 @@ DIFF = """diff --git a/tests/test_a.py b/tests/test_a.py
 @@ -20,2 +22,0 @@
 -gone
 -gone
-diff --git a/new.py b/new.py
-new file mode 100644
---- /dev/null
-+++ b/new.py
-@@ -0,0 +1,3 @@
-+a
-+b
-+c
 """
 
 
-def test_changed_lines() -> None:
-    assert changed_lines(DIFF) == {"tests/test_a.py": {4, 5, 11, 22}, "new.py": {1, 2, 3}}
+def test_hunk_lines() -> None:
+    assert hunk_lines(DIFF) == {4, 5, 11, 22}
 
 
 @pytest.mark.parametrize(
@@ -111,6 +103,7 @@ class TestC:
         ({10}, {"test_b"}),
         ({12}, set[str]()),  # a comment only
         ({18}, {"TestC::test_d"}),
+        ({16}, {"test_a", "test_b", "TestC::test_d"}),  # the class line
         ({3}, {"test_a", "test_b", "TestC::test_d"}),  # outside any test
         ({4}, set[str]()),  # a blank line
         (None, {"test_a", "test_b", "TestC::test_d"}),  # a new file
@@ -144,6 +137,7 @@ describe("group", () => {
         ({10}, {"two"}),
         ({9}, set[str]()),
         ({1}, {"one", "two"}),
+        ({7}, {"one", "two"}),  # the describe line, inside no test
         (None, {"one", "two"}),
     ],
 )
@@ -174,6 +168,23 @@ def test_js_touched_finds_a_title_without_a_line() -> None:
         ("TypeError", "add() missing 1 required positional argument: 'b'", "shape"),
         ("TypeError", "add() takes 2 positional arguments but 3 were given", "shape"),
         ("TypeError", "unsupported operand type(s) for +: 'int' and 'str'", "crash"),
+        ("TypeError", "f() takes from 1 to 2 positional arguments but 3 were given", "shape"),
+        ("TypeError", "f() got multiple values for argument 'a'", "shape"),
+        ("TypeError", "f() takes at most 2 arguments (3 given)", "shape"),
+        (
+            "TypeError",
+            "f() got some positional-only arguments passed as keyword arguments: 'a'",
+            "shape",
+        ),
+        (
+            "AttributeError",
+            "<module 'calc' from '/x/calc.py'> does not have the attribute 'helper'",
+            "shape",
+        ),
+        ("AttributeError", "<module 'calc' from '/x/calc.py'> has no attribute 'helper'", "shape"),
+        ("AttributeError", "Mock object has no attribute 'g'", "shape"),
+        ("Failed", "async def functions are not natively supported.", "shape"),
+        ("Failed", "Timeout (>1.0s) from pytest-timeout.", "shape"),
     ],
 )
 def test_python_kind(exc: str, message: str, want: str) -> None:
@@ -197,6 +208,10 @@ def test_python_kind(exc: str, message: str, want: str) -> None:
         ),
         ("Error: Cannot find module './nope'", "shape"),
         ("RangeError: Invalid array length", "crash"),
+        ('Error: The property "g" is not defined on the object.', "shape"),
+        ("Error: Test timed out in 5000ms.", "shape"),
+        ('thrown: "Exceeded timeout of 5000 ms for a test.', "shape"),
+        ("Error: test timed out after 100ms", "shape"),
     ],
 )
 def test_js_kind(message: str, want: str) -> None:

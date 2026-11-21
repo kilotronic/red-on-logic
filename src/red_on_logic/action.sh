@@ -15,20 +15,27 @@ if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
   }
 fi
 
-args=(--base "$BASE" --runner "${RUNNER:-auto}")
-[ -n "${PYTEST_CMD:-}" ] && args+=(--pytest "$PYTEST_CMD")
-[ -n "${VITEST_CMD:-}" ] && args+=(--vitest "$VITEST_CMD")
-[ -n "${JEST_CMD:-}" ] && args+=(--jest "$JEST_CMD")
-[ -n "${NODE_CMD:-}" ] && args+=(--node "$NODE_CMD")
-[ -n "${RUN_CMD:-}" ] && args+=(--command "$RUN_CMD")
-[ -n "${WORKDIR:-}" ] && args+=(--working-directory "$WORKDIR")
+# actions/checkout of a pull request checks out GitHub's merge commit. Its first parent is
+# the base branch as merged, which may be newer than the event's base: judge against that
+# parent, so other people's commits on the base branch are never swapped or read for a skip.
+if [ -n "${PR_HEAD:-}" ] && [ "$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || true)" = "$PR_HEAD" ]; then
+  BASE=$(git rev-parse 'HEAD^1')
+fi
+
+args=("--base=$BASE" "--runner=${RUNNER:-auto}")
+[ -n "${PYTEST_CMD:-}" ] && args+=("--pytest=$PYTEST_CMD")
+[ -n "${VITEST_CMD:-}" ] && args+=("--vitest=$VITEST_CMD")
+[ -n "${JEST_CMD:-}" ] && args+=("--jest=$JEST_CMD")
+[ -n "${NODE_CMD:-}" ] && args+=("--node=$NODE_CMD")
+[ -n "${RUN_CMD:-}" ] && args+=("--command=$RUN_CMD")
+[ -n "${WORKDIR:-}" ] && args+=("--working-directory=$WORKDIR")
 while IFS= read -r glob; do
-  [ -n "$glob" ] && args+=(--test-paths "$glob")
+  [ -n "$glob" ] && args+=("--test-paths=$glob")
 done < <(printf '%s\n' "${TEST_PATHS:-}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 while IFS= read -r label; do
-  [ -n "$label" ] && args+=(--label "$label")
+  [ -n "$label" ] && args+=("--label=$label")
 done < <(python3 -I -c 'import json, os; print("\n".join(json.loads(os.environ.get("LABELS") or "[]") or []))')
-[ -n "${GITHUB_STEP_SUMMARY:-}" ] && args+=(--summary "$GITHUB_STEP_SUMMARY")
+[ -n "${GITHUB_STEP_SUMMARY:-}" ] && args+=("--summary=$GITHUB_STEP_SUMMARY")
 
 ROL_SRC="$GITHUB_ACTION_PATH/src" exec python3 -I -c \
   'import os, sys; sys.path.insert(0, os.environ.pop("ROL_SRC")); from red_on_logic.cli import entry; entry()' \

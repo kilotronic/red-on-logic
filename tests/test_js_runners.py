@@ -184,3 +184,81 @@ def test_a_js_test_file_with_no_runner_is_reported(planted: Planted) -> None:
     assert exit_code == 1
     assert "No test runner found for calc.test.js" in text
     assert "could be run" in text
+
+
+def test_a_new_snapshot_stays_for_the_base_run(planted: Planted) -> None:
+    planted.write("package.json", RUNNERS["vitest"][0])
+    planted.write("src/calc.js", ESM_FIXED)
+    planted.link_node_modules()
+    planted.base()
+    planted.write(
+        "src/calc.test.js",
+        'import { test, expect } from "vitest";\nimport { add } from "./calc.js";\n\n'
+        'test("snap", () => {\n  expect(add(1, 2)).toMatchSnapshot();\n});\n',
+    )
+    planted.write(
+        "src/__snapshots__/calc.test.js.snap",
+        "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html\n\n"
+        "exports[`snap 1`] = `3`;\n",
+    )
+    planted.commit("test: snapshot")
+
+    exit_code, report, text = planted.run()
+
+    assert exit_code == 1, text
+    assert list(verdicts(report).values()) == ["vacuous"]
+
+
+def test_a_changed_helper_after_the_tests_judges_every_test(planted: Planted) -> None:
+    planted.write("package.json", RUNNERS["vitest"][0])
+    planted.write("calc.js", ESM_BASE)
+    body = (
+        VITEST_HEAD
+        + 'test("adds", () => {\n  expect(add(1, 2)).toBe(want());\n});\n\n'
+        + 'test("other", () => {\n  expect(1).toBe(1);\n});\n\n'
+        + "function want() {\n  return {w};\n}}\n"
+    )
+    planted.write("calc.test.js", body.replace("{w}", "-1").replace("}}", "}"))
+    planted.link_node_modules()
+    planted.base()
+    planted.write("calc.js", ESM_FIXED)
+    planted.write("calc.test.js", body.replace("{w}", "3").replace("}}", "}"))
+    planted.commit("fix")
+
+    exit_code, report, text = planted.run()
+
+    assert exit_code == 0, text
+    assert verdicts(report)["calc.test.js > adds"] == "proven"
+
+
+def test_a_node_test_in_a_folder_that_fails_to_load_is_red_on_import(planted: Planted) -> None:
+    planted.write("package.json", '{"type": "module"}\n')
+    planted.write("calc.js", ESM_BASE)
+    planted.base()
+    planted.write("calc.js", ESM_BASE + "export function mul(a, b) {\n  return a * b;\n}\n")
+    planted.write("test/mul.test.js", RUNNERS["node"][6].replace("./calc.js", "../calc.js"))
+    planted.commit("feat")
+
+    exit_code, report, text = planted.run()
+
+    assert exit_code == 1, text
+    assert list(verdicts(report).values()) == ["red-on-import"]
+    assert "export named" in text
+
+
+def test_tests_with_the_same_title_are_kept_apart(planted: Planted) -> None:
+    fixed, code, existing, assertion = _base(planted, "vitest")
+    planted.write(code, fixed)
+    planted.write(
+        "calc.test.js",
+        existing
+        + "\n"
+        + _case("same", assertion, "add(5, 0)", "5")
+        + "\n"
+        + _case("same", assertion, "add(1, 2)", "3"),
+    )
+    planted.commit("fix")
+
+    _, report, _ = planted.run()
+
+    assert sorted(verdicts(report).values()) == ["proven", "vacuous"]

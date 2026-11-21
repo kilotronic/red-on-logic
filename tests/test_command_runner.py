@@ -110,3 +110,29 @@ def test_the_command_runner_needs_test_paths(planted: Planted) -> None:
     code, _, _ = planted.run("--runner", "command", "--command", "true")
 
     assert code == 2
+
+
+def test_junit_without_a_file_attribute_maps_the_classname(
+    planted: Planted, tmp_path: Path
+) -> None:
+    planted.write("calc.py", "def add(a, b):\n    return a - b\n")
+    planted.base()
+    planted.write("calc.py", "def add(a, b):\n    return a + b\n")
+    planted.write(
+        "checks/test_calc.py",
+        "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n",
+    )
+    planted.commit("fix")
+
+    code, report, text = planted.run(
+        "--runner",
+        "command",
+        "--command",
+        f"PYTHONPATH=. {sys.executable} -m pytest -q -p no:cacheprovider"
+        " --junitxml={junit} {files}",
+        "--test-paths",
+        "checks/*.py",
+    )
+
+    assert code == 0, text
+    assert verdicts(report) == {"checks/test_calc.py::test_add": "proven"}

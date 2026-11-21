@@ -12,14 +12,22 @@ and puts the checkout back; everything in the repository stays green.
 
 1. It finds the files the pull request changed, from the merge base to the head.
 2. It runs the changed test files on the head, as they are.
-3. It puts every changed code file back to the base's version, keeps the test files and their support files at the
-   head's (anything under a `tests`, `test`, `__tests__`, `spec`, `testdata` or `testing` folder, and `conftest.py`),
-   removes code files the pull request added, and runs the same test files again.
-4. It puts the checkout back (`git reset --hard` to the head; it refuses to start with uncommitted changes).
+3. It puts every changed source file back to the base's version and removes source files the pull request added,
+   then runs the same test files again. Everything else stays at the pull request's version: the test files, anything
+   under a `tests`, `test`, `__tests__`, `spec`, `testdata`, `testing`, `fixtures`, `__fixtures__`, `__mocks__`,
+   `__snapshots__` or `snapshots` folder, `conftest.py`, and every file that is not source code (data, snapshots,
+   docs, lockfiles, `pyproject.toml`, `package.json`) or is config (`*.config.*`, dot files, `setup.py`,
+   `*.setup.*`). A missing data file or an older runner config would fail the base for a reason that is not the
+   code under test.
+4. It puts the checkout back (`git reset --hard` to the head). It refuses to start with uncommitted changes to
+   tracked files, or when an untracked file sits where the base run would write one; it does not reset when HEAD
+   or the branch moved during the run, and says which files to put back. Ctrl-C, a cancelled job (SIGTERM) and a
+   closed terminal (SIGHUP) all put the checkout back first.
 
-A test is **judged** when it is new or its own lines changed. A changed line outside every test (an import, a
-constant, a helper at the top of the file) judges every test in that file; a blank or comment-only line judges
-nothing. Unchanged tests in a changed file run too but are not judged.
+A test is **judged** when it is new or its own lines changed. A changed line inside no test (an import, a constant,
+a helper or fixture, a class attribute, a `describe` line) judges every test in that file; a blank or comment-only
+line judges nothing. Unchanged tests in a changed file run too but are not judged. A test that did not finish on
+the head (its process ended) did not run.
 
 Each judged test gets one verdict:
 
@@ -70,14 +78,14 @@ request, or skip the check with a reason.
 
 ## Skipping it, with a reason
 
-A pure refactor, a test-only or a docs-only pull request has nothing to prove. Say so on a line of its own in any
-commit message (a trailer), or as a label:
+A pure refactor, a test-only or a docs-only pull request has nothing to prove. Say so on a line of its own, not
+indented, in any commit message (a trailer), or as a label:
 
 ```text
 red-on-logic: not applicable (pure refactor, no behaviour change)
 ```
 
-The reason is printed, and a skip with no reason fails. A label is read when the job runs: add `labeled` and
+The reason is printed, and a skip with no reason (or the placeholder `<reason>`) fails. A label is read when the job runs: add `labeled` and
 `unlabeled` to the workflow's `pull_request` types so adding one re-runs the check.
 
 ## Use as a GitHub Action
@@ -109,7 +117,9 @@ jobs:
 
 It needs no secrets and no write permission, and runs on GitHub's runners (Linux and macOS; it uses bash and the
 runner's `python3`, 3.10 or later). Run it on `pull_request`, never `pull_request_target`: it runs the pull request's
-code. On any other event with no `base` input it does nothing. The result also goes to the job summary.
+code. On a pull request's merge checkout (the default) it judges against the merge's first parent, so commits that
+landed on the base branch since the event are never swapped or read for a skip. On any other event with no `base`
+input it does nothing. The result also goes to the job summary.
 
 | Input               | Default                                                                      |
 | ------------------- | ---------------------------------------------------------------------------- |
@@ -136,7 +146,9 @@ code. On any other event with no `base` input it does nothing. The result also g
 - **vitest** or **jest** for other test files (`*.test.*`, `*.spec.*`, `*-test.*`, `test-*.*`, anything under
   `__tests__`), chosen from the nearest `package.json`'s dependencies, run from that folder.
 - **command** for anything else: any command that writes JUnit XML. A `<failure>` is a wrong answer, an `<error>` is
-  red on import. JUnit has no line numbers, so every test in a changed file is judged.
+  red on import. A case belongs to the file its `file` attribute names, else the file its dotted `classname` names
+  (`checks.test_calc` is `checks/test_calc.py`), else the run's only file. JUnit has no line numbers, so every test
+  in a changed file is judged.
 
 ## Use as a command
 
@@ -148,15 +160,21 @@ red-on-logic --json report.json --summary summary.md
 ```
 
 It changes and restores files in the checkout it runs in, so commit or stash first; it refuses to start otherwise.
+Do not edit files while it runs: the restore resets every tracked file to the head.
 
 ## What it cannot see
 
-- A test that fails on the base by chance (a flake) reads as proof. The head run catches a test that always fails.
+- A test that fails on the base by chance (a flake) reads as proof: each side runs once. The head run catches a test
+  that always fails, and a timeout on the base never counts.
+- In JavaScript, a name the base does not export usually imports as `undefined` instead of failing, so
+  `expect(MAX).toBe(10)` against a new `export const MAX` fails with an assertion and reads as proof. Calling a
+  missing function is caught (`is not a function`).
+- A changed data or config file stays at the head's version, so a test that pins only a data change reads as
+  proving nothing.
 - Code installed into the environment as a copy (not editable) is not swapped, so its tests pass on the base and
   read as proving nothing. Install the project editable, or run from source.
 - A build step between the code and the tests (a compiled extension, a bundle the tests import) is not re-run on the
   base. Use `runner: command` with the build in the command.
-- Data outside a test folder is code: a golden file kept elsewhere goes back to the base's version too.
 - "At least one": a pull request with one real test and several vacuous ones passes; the vacuous ones are listed.
 
 ## Development

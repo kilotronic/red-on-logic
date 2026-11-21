@@ -6,6 +6,10 @@ from conftest import PYTEST, Planted, verdicts
 
 CALC_BASE = "def add(a, b):\n    return a - b\n"
 CALC_FIXED = "def add(a, b):\n    return a + b\n"
+HELPER = (
+    "from calc import add\n\n\ndef want():\n    return {w}\n\n\n"
+    "def test_add():\n    assert add(1, 2) == want()\n"
+)
 EXISTING = "from calc import add\n\n\ndef test_zero():\n    assert add(0, 0) == 0\n"
 
 
@@ -145,7 +149,7 @@ def test_a_comment_only_change_judges_nothing(planted: Planted) -> None:
 
     assert code == 1
     assert report["result"] == "no-tests"
-    assert "no new or changed tests" in text
+    assert "no test in them changed" in text
 
 
 def test_a_change_outside_any_test_judges_the_whole_file(planted: Planted) -> None:
@@ -264,3 +268,153 @@ def test_a_fixture_error_on_the_base_is_not_proof(planted: Planted) -> None:
 
     assert code == 1
     assert verdicts(report) == {"tests/test_box.py::test_box": "red-on-import"}
+
+
+def test_a_new_data_file_stays_for_the_base_run(planted: Planted) -> None:
+    # Review finding: removing an added data file made the base fail with a crash.
+    _base(planted)
+    planted.write("data/want.json", "3\n")
+    planted.write(
+        "tests/test_data.py",
+        "import json\nfrom calc import add\n\n\n"
+        "def test_data():\n    assert json.load(open('data/want.json')) == 3\n",
+    )
+    planted.commit("test: data")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 1
+    assert verdicts(report) == {"tests/test_data.py::test_data": "vacuous"}
+
+
+def test_config_files_keep_the_head_version(planted: Planted) -> None:
+    # Review finding: base pyproject without the new marker made the base fail on setup.
+    _base(planted)
+    planted.write(
+        "pyproject.toml",
+        '[tool.pytest.ini_options]\nmarkers = ["slow"]\naddopts = "--strict-markers"\n',
+    )
+    planted.write(
+        "tests/test_calc.py",
+        "import pytest\n"
+        + EXISTING
+        + "\n\n@pytest.mark.slow\ndef test_marked():\n    assert add(0, 0) == 0\n",
+    )
+    planted.commit("test: marked")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 1
+    assert verdicts(report)["tests/test_calc.py::test_marked"] == "vacuous"
+
+
+def test_a_process_that_dies_mid_test_is_not_a_pass_on_head(planted: Planted) -> None:
+    _base(planted)
+    planted.write(
+        "calc.py",
+        "import os\n\n\ndef add(a, b):\n    if a == 1:\n        os._exit(0)\n    return a + b\n",
+    )
+    planted.write(
+        "tests/test_calc.py", EXISTING + "\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    )
+    planted.commit("break")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 1
+    assert report["result"] != "proven"
+
+
+def test_a_changed_helper_function_judges_the_whole_file(planted: Planted) -> None:
+    planted.write("calc.py", CALC_BASE)
+    planted.write(
+        "tests/test_calc.py",
+        HELPER.format(w=-1),
+    )
+    planted.base()
+    planted.write("calc.py", CALC_FIXED)
+    planted.write(
+        "tests/test_calc.py",
+        HELPER.format(w=3),
+    )
+    planted.commit("fix")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 0
+    assert verdicts(report) == {"tests/test_calc.py::test_add": "proven"}
+
+
+def test_a_changed_class_attribute_judges_the_class(planted: Planted) -> None:
+    planted.write("calc.py", CALC_BASE)
+    body = (
+        "from calc import add\n\n\nclass TestAdd:\n    want = {w}\n\n"
+        "    def test_add(self):\n        assert add(1, 2) == self.want\n"
+    )
+    planted.write("tests/test_calc.py", body.format(w=-1))
+    planted.base()
+    planted.write("calc.py", CALC_FIXED)
+    planted.write("tests/test_calc.py", body.format(w=3))
+    planted.commit("fix")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 0
+    assert verdicts(report) == {"tests/test_calc.py::TestAdd::test_add": "proven"}
+
+
+def test_test_files_with_spaces_and_accents_are_judged(planted: Planted) -> None:
+    _base(planted)
+    planted.write("calc.py", CALC_FIXED)
+    planted.write(
+        "tests/test_café sum.py",
+        "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n",
+    )
+    planted.write(
+        "tests/test_calc.py", EXISTING + "\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    )
+    planted.commit("fix")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 0
+    assert verdicts(report) == {
+        "tests/test_café sum.py::test_add": "proven",
+        "tests/test_calc.py::test_add": "proven",
+    }
+
+
+def test_an_untracked_file_at_a_deleted_path_is_refused(planted: Planted) -> None:
+    planted.write("calc.py", CALC_BASE)
+    planted.write("settings.py", "SECRET = 'base'\n")
+    planted.write("tests/test_calc.py", EXISTING)
+    planted.base()
+    from conftest import git
+
+    git(planted.root, "rm", "-q", "--cached", "settings.py")
+    planted.write(".gitignore", "node_modules\n__pycache__/\n.pytest_cache/\nsettings.py\n")
+    planted.write("settings.py", "SECRET = 'mine'\n")
+    planted.write("calc.py", CALC_FIXED)
+    planted.write(
+        "tests/test_calc.py", EXISTING + "\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    )
+    planted.commit("stop tracking settings")
+
+    code, _, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 2
+    assert (planted.root / "settings.py").read_text() == "SECRET = 'mine'\n"
+
+
+def test_a_pytest_internal_failure_is_not_proof(planted: Planted) -> None:
+    _base(planted)
+    planted.write("calc.py", CALC_FIXED)
+    planted.write(
+        "tests/test_calc.py", EXISTING + "\n\nasync def test_async():\n    assert add(1, 2) == 3\n"
+    )
+    planted.commit("fix")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 1
+    assert verdicts(report)["tests/test_calc.py::test_async"] != "proven"

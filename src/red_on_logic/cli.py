@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -30,9 +32,9 @@ from types import FrameType
 from red_on_logic.report import Report, Row, render_markdown, render_text, verdict_of
 from red_on_logic.runners import RUNNERS, Commands, Group, Outcome, ToolError, detect, run_group
 from red_on_logic.select import (
-    changed_lines,
+    hunk_lines,
+    is_code,
     is_test_file,
-    is_test_side,
     js_touched,
     matches_any,
     python_touched,
@@ -74,17 +76,51 @@ def _changes(root: Path, base: str, head: str) -> list[tuple[str, str]]:
     return [(parts[i][0], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
 
 
+STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
+
 @contextmanager
 def _terminate_as_interrupt() -> Generator[None]:
+    """SIGTERM (a cancelled job) and SIGHUP (a closed terminal) unwind like Ctrl-C, so the
+    checkout is put back."""
+
     def raise_interrupt(signum: int, frame: FrameType | None) -> None:
         del signum, frame
         raise KeyboardInterrupt
 
-    previous = signal.signal(signal.SIGTERM, raise_interrupt)
+    previous = {s: signal.signal(s, raise_interrupt) for s in STOP_SIGNALS}
     try:
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for s, handler in previous.items():
+            signal.signal(s, handler)
+
+
+def _branch(root: Path) -> str:
+    done = subprocess.run(
+        ["git", "symbolic-ref", "-q", "HEAD"], cwd=root, capture_output=True, text=True, check=False
+    )
+    return done.stdout.strip()
+
+
+def _restore(root: Path, head: str, branch: str, swapped: list[str]) -> None:
+    """Put the checkout back at the head, with stop signals held off until it is done.
+    Refuses when HEAD or the branch moved during the run: a reset would move the new
+    branch to this head."""
+    held = {s: signal.signal(s, signal.SIG_IGN) for s in (signal.SIGINT, *STOP_SIGNALS)}
+    try:
+        now = git(root, "rev-parse", "HEAD").strip()
+        if now != head or _branch(root) != branch:
+            paths = " ".join(shlex.quote(p) for p in swapped)
+            raise ToolError(
+                f"HEAD moved during the run, so the checkout was not reset. These files may"
+                f" still hold the base's version: {paths or '(none)'}. To put them back:"
+                f" git checkout {head} -- <file>"
+            )
+        git(root, "reset", "-q", "--hard", head)
+    finally:
+        for s, handler in held.items():
+            signal.signal(s, handler)
 
 
 @contextmanager
@@ -92,6 +128,13 @@ def base_code(root: Path, base: str, head: str, code: list[tuple[str, str]]) -> 
     """The checkout with every changed code file at the base's version, then put back."""
     restore = [p for s, p in code if s != "A"]
     remove = [p for s, p in code if s == "A"]
+    in_the_way = [p for s, p in code if s == "D" and os.path.lexists(root / p)]
+    if in_the_way:
+        raise ToolError(
+            "these files are not tracked on this branch but exist here, and the base run would"
+            f" overwrite them: {', '.join(in_the_way)}. Move them aside first"
+        )
+    branch = _branch(root)
     try:
         if restore:
             git(root, "checkout", base, "--pathspec-from-file=-", "--pathspec-file-nul",
@@ -101,7 +144,7 @@ def base_code(root: Path, base: str, head: str, code: list[tuple[str, str]]) -> 
                 stdin="\0".join(remove))  # fmt: skip
         yield
     finally:
-        git(root, "reset", "-q", "--hard", head)
+        _restore(root, head, branch, restore + remove)
 
 
 def _groups(
@@ -195,8 +238,8 @@ def check(args: argparse.Namespace) -> Report:
         tests = [p for s, p in changes if s != "D" and matches_any(p, extra)]
     else:
         tests = [p for s, p in changes if s != "D" and is_test_file(p, extra)]
-    code = [(s, p) for s, p in changes if not is_test_side(p, extra)]
-    report = Report("no-tests", base, head, changes_code=bool(code))
+    code = [(s, p) for s, p in changes if is_code(p, extra)]
+    report = Report("no-tests", base, head, changes_code=bool(code), test_files=len(tests))
     if not tests:
         return report
 
@@ -216,9 +259,25 @@ def check(args: argparse.Namespace) -> Report:
         node=args.node or Commands.node,
         command=args.command,
     )
-    lines = changed_lines(
-        git(root, "diff", "-U0", "--no-renames", "--no-color", "--no-ext-diff", base, head)
-    )
+    lines = {
+        f: hunk_lines(
+            git(
+                root,
+                "-c",
+                "core.quotePath=false",
+                "diff",
+                "-U0",
+                "--no-renames",
+                "--no-color",
+                "--no-ext-diff",
+                base,
+                head,
+                "--",
+                f,
+            )
+        )
+        for f in tests
+    }
     added = {p for s, p in changes if s == "A"}
     with _terminate_as_interrupt():
         head_outcomes = _run_all(groups, root, commands)

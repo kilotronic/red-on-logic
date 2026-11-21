@@ -104,3 +104,33 @@ def test_the_step_refuses_a_base_it_cannot_get(planted: Planted, tmp_path: Path)
 
     assert code == 2
     assert "fetch-depth: 0" in output
+
+
+def test_a_merge_checkout_judges_against_its_first_parent(planted: Planted, tmp_path: Path) -> None:
+    # The event's base is stale: main moved on with someone else's skip line.
+    stale = _fix(planted)
+    pr_head = git(planted.root, "rev-parse", "HEAD").strip()
+    git(planted.root, "checkout", "-q", "main")
+    planted.write("other.py", "x = 1\n")
+    planted.commit("chore: other\n\nred-on-logic: not applicable (someone else's change)")
+    git(planted.root, "merge", "-q", "--no-ff", "-m", "Merge", pr_head)
+    git(planted.root, "checkout", "-q", "--detach", "HEAD")
+
+    code, output, _ = _step(planted, tmp_path, BASE=stale, PR_HEAD=pr_head, PYTEST_CMD=PYTEST)
+
+    assert code == 0, output
+    assert "red-on-logic: proven" in output
+    assert "someone else" not in output
+
+
+def test_a_label_that_looks_like_an_option_is_only_a_label(
+    planted: Planted, tmp_path: Path
+) -> None:
+    base = _fix(planted)
+
+    code, output, _ = _step(
+        planted, tmp_path, BASE=base, PYTEST_CMD=PYTEST, LABELS=json.dumps(["--summary=x"])
+    )
+
+    assert code == 0, output
+    assert not (planted.root / "x").exists()

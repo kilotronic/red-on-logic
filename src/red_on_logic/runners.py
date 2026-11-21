@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -215,6 +215,11 @@ def parse_pytest(text: str, root: Path) -> list[Outcome]:
                         status = "error"
                 else:
                     status, message = "error", f"{r['when']} failed: {detail}"
+        if status == "passed" and not any(
+            r["when"] == "call" and r["outcome"] == "passed" for r in records
+        ):
+            # No passing call phase: the process died mid-test, so it never finished.
+            status, message = "skipped", "the test did not finish (its process ended)"
         outcomes.append(Outcome(file, test_id, status, kind, message, key=_py_key(nodeid)))
     return outcomes
 
@@ -329,15 +334,31 @@ def run_js(group: Group, root: Path, commands: Commands, scratch: Path) -> list[
         raise ToolError(f"{group.runner} wrote results this check cannot read: {e}") from e
 
 
-def parse_junit(text: str, cwd: Path, root: Path) -> list[Outcome]:
+def _junit_file(case: ET.Element, cwd: Path, root: Path, files: tuple[str, ...]) -> str:
+    """The test file a JUnit case belongs to: its `file` attribute, else its dotted
+    `classname` matched to one of the run's files (`checks.test_calc` -> checks/test_calc.py),
+    else the run's only file."""
+    raw = case.get("file")
+    if raw:
+        return _rel(raw if Path(raw).is_absolute() else cwd / raw, root)
+    classname = case.get("classname") or ""
+    for f in files:
+        module = os.path.splitext(os.path.relpath(root / f, cwd))[0].replace(os.sep, ".")
+        if classname == module or classname.startswith(module + "."):
+            return f
+    if classname and (cwd / classname).exists():
+        return _rel(cwd / classname, root)
+    return files[0] if len(files) == 1 else classname
+
+
+def parse_junit(text: str, cwd: Path, root: Path, files: tuple[str, ...] = ()) -> list[Outcome]:
     try:
         tree = ET.fromstring(text)  # noqa: S314 - the tested project's own runner's report
     except ET.ParseError as e:
         raise ToolError(f"the command's JUnit report cannot be read: {e}") from e
     outcomes: list[Outcome] = []
     for case in tree.iter("testcase"):
-        raw = case.get("file") or case.get("classname") or ""
-        file = _rel(raw if Path(raw).is_absolute() else cwd / raw, root)
+        file = _junit_file(case, cwd, root, files)
         name = case.get("name", "")
         status, message = "passed", ""
         for tag, mapped in (("error", "error"), ("failure", "failed"), ("skipped", "skipped")):
@@ -362,7 +383,7 @@ def run_command(group: Group, root: Path, command: str, scratch: Path) -> list[O
     output = _run(line, group.cwd, env, shell=True)  # noqa: S604 - the owner's command
     if not out.exists():
         raise _no_report("the command", output)
-    return parse_junit(out.read_text(), group.cwd, root)
+    return parse_junit(out.read_text(), group.cwd, root, group.files)
 
 
 def run_group(group: Group, root: Path, commands: Commands) -> list[Outcome]:
@@ -377,4 +398,15 @@ def run_group(group: Group, root: Path, commands: Commands) -> list[Outcome]:
         else:
             outcomes = run_js(group, root, commands, scratch)
     wanted = set(group.files)
-    return [o for o in outcomes if o.file in wanted]
+    return _distinct([o for o in outcomes if o.file in wanted])
+
+
+def _distinct(outcomes: list[Outcome]) -> list[Outcome]:
+    """Two tests with one id (the same title twice) get `#2`, `#3` in run order, so the
+    head's and the base's are matched one to one and never share a verdict."""
+    seen: dict[str, int] = {}
+    out: list[Outcome] = []
+    for o in outcomes:
+        seen[o.id] = seen.get(o.id, 0) + 1
+        out.append(o if seen[o.id] == 1 else replace(o, id=f"{o.id} #{seen[o.id]}"))
+    return out

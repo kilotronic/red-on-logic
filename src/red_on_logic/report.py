@@ -37,6 +37,7 @@ class Report:
     unrunnable: list[str] = field(default_factory=lambda: [])
     changes_code: bool = True
     note: str = ""
+    test_files: int = 0
 
 
 def verdict_of(row: Row) -> str:
@@ -94,6 +95,11 @@ def _headline(report: Report) -> str:
         return f"red-on-logic: skipped by a {report.skip.source}: {report.skip.reason}"
     if report.result == "invalid-skip":
         return f"red-on-logic: not proven. {report.note}"
+    if report.result == "no-tests" and report.test_files:
+        return (
+            "red-on-logic: not proven. This pull request changes test files, but no test in"
+            " them changed (only comments or blank lines)."
+        )
     if report.result == "no-tests":
         return "red-on-logic: not proven. This pull request has no new or changed tests."
     n = len(judged)

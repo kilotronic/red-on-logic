@@ -1,6 +1,6 @@
 """A pull request that needs no proof says so, with a reason.
 
-On a line of its own in any commit message (a trailer), or as a label:
+On a line of its own, not indented, in any commit message (a trailer), or as a label:
 
     red-on-logic: not applicable (pure refactor, no behaviour change)
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-LINE = re.compile(r"^\s*red-on-logic:\s*not applicable\b(.*)$", re.IGNORECASE)
+LINE = re.compile(r"^red-on-logic:\s*not applicable\s*(\(.*\))?\s*$", re.IGNORECASE)
 REASON = re.compile(r"^\s*\((.*)\)\s*$")
 EXAMPLE = "red-on-logic: not applicable (<reason>)"
 
@@ -29,8 +29,8 @@ def _parse(line: str, source: str) -> Skip | None:
     match = LINE.match(line)
     if not match:
         return None
-    reason = REASON.match(match[1])
-    if not reason or not reason[1].strip():
+    reason = REASON.match(match[1] or "")
+    if not reason or not reason[1].strip() or reason[1].strip() == "<reason>":
         raise SkipError(f"The {source} `{line.strip()}` needs a reason: `{EXAMPLE}`.")
     return Skip(reason[1].strip(), source)
 
