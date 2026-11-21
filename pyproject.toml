@@ -1,6 +1,6 @@
 [project]
 name = "red-on-logic"
-version = "0.0.0"
+version = "1.0.0"
 description = "Prove a pull request's new tests test something: they must fail on the base branch's code with a wrong answer, not an import error."
 readme = "README.md"
 license = "MIT"
