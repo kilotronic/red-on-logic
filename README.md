@@ -13,13 +13,16 @@ and puts the checkout back; everything in the repository stays green.
 1. It finds the files the pull request changed, from the merge base to the head.
 2. It runs the changed test files on the head, as they are.
 3. It puts every changed source file back to the base's version and removes source files the pull request added,
-   then runs the same test files again. Everything else stays at the pull request's version: the test files, anything
-   under a `tests`, `test`, `__tests__`, `spec`, `testdata`, `testing`, `fixtures`, `__fixtures__`, `__mocks__`,
-   or `__snapshots__` folder, `conftest.py`, and every file that is not source code (data, snapshots,
-   docs, lockfiles, `pyproject.toml`, `package.json`) or is test or build config (dot files, `jest.config.*`, `vitest.config.*` and other tools' `<tool>.config.*`,
-   `jest.setup.*`, `setupTests.*`, and `setup.py` or `noxfile.py` at the root). Behaviour kept outside source
-   files (SQL, templates, rules) goes back too when the `code-paths` input names it. A missing data file or an older runner config would fail the base for a reason that is not the
-   code under test.
+   then runs the same test files again. Everything else stays at the pull request's version:
+   - the test files, `conftest.py`, and anything under a `tests`, `test`, `__tests__`, `spec`, `testdata`,
+     `testing`, `__fixtures__`, `__mocks__` or `__snapshots__` folder;
+   - every file that is not source code: data, snapshots, docs, lockfiles, `pyproject.toml`, `package.json`;
+   - test and build config: dot files, `<tool>.config.*` for the usual tools (jest, vitest, vite, babel, eslint,
+     ...), `jest.setup.*`, `vitest.setup.*`, `setupTests.*`, and `setup.py` or `noxfile.py` at the root.
+
+   A missing data file or an older runner config would fail the base for a reason that is not the code under test.
+   Behaviour kept outside source files (SQL, templates, rules) goes back too when the `code-paths` input names it.
+
 4. It puts the checkout back (`git reset --hard` to the head). It refuses to start with uncommitted changes to
    tracked files, or when an untracked file sits where the base run would write one; it does not reset when HEAD
    or the branch moved during the run, and says which files to put back. Ctrl-C, a cancelled job (SIGTERM) and a
