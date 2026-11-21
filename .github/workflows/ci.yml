@@ -56,14 +56,14 @@ jobs:
           allow-bots: dependabot
           commit-subject: true
 
-  # ruff, pyright (strict) and the tests.
+  # ruff, pyright (strict) and the tests, the planted examples for every runner among them.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.10", "3.12", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,6 +71,11 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           python-version: ${{ matrix.python-version }}
+      # The planted vitest, jest and node:test examples run under these.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts --prefix tests/js
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -89,6 +94,27 @@ jobs:
         with:
           persist-credentials: false
       - run: pipx run prek==0.5.11 run --all-files --show-diff-on-failure
+
+  # This check on its own pull requests: their new tests must fail on the base's code. Not part of `ci`,
+  # so not required.
+  red-on-logic:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts --prefix tests/js
+      - run: uv sync --frozen
+      - uses: ./
 
   ci:
     name: ci

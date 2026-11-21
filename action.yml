@@ -1,0 +1,87 @@
+name: Red on Logic
+description: >-
+  Prove a pull request's new or changed tests test something: run against the base branch's code (the tests kept
+  at the pull request's version), at least one must fail with a wrong answer, not an import error. Nothing failing is
+  ever committed: the swap happens inside this job and the checkout is put back.
+branding:
+  icon: check-circle
+  color: red
+
+inputs:
+  base:
+    description: >-
+      The base commit. Default the pull request's base (on GitHub's merge checkout, the merge's first parent); on any
+      other event, with no base, the step does nothing. A base set here is used as given.
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  runner:
+    description: >-
+      auto (default) picks per file: pytest for Python, node:test for a file that imports it, else vitest or jest from
+      the nearest package.json. Or one of pytest, vitest, jest, node, command for every test file.
+    required: false
+    default: auto
+  pytest:
+    description: The pytest command. Default `.venv/bin/python -m pytest` when there is a .venv, else `python3 -m pytest`.
+    required: false
+    default: ""
+  vitest:
+    description: The vitest command. Default `npx --no-install vitest run`.
+    required: false
+    default: ""
+  jest:
+    description: The jest command. Default `npx --no-install jest`.
+    required: false
+    default: ""
+  node:
+    description: The node command for node:test files. Default `node`.
+    required: false
+    default: ""
+  command:
+    description: >-
+      With `runner: command`, a shell command that runs the test files named by {files} and writes JUnit XML to
+      {junit} (also in $RED_ON_LOGIC_FILES and $RED_ON_LOGIC_JUNIT). A <failure> is a wrong answer; an <error> is not.
+    required: false
+    default: ""
+  test-paths:
+    description: >-
+      More globs of test files, separated by commas or newlines (e.g. `checks/*.check`). With `runner: command`, the
+      only test files.
+    required: false
+    default: ""
+  code-paths:
+    description: >-
+      Globs of files that are code though not source, separated by commas or newlines (e.g. `templates/**`, `*.sql`):
+      they go back to the base's version too. By default only source files do; data and config stay at the head's.
+    required: false
+    default: ""
+  working-directory:
+    description: With a fixed `runner`, where it runs. Default the repository root.
+    required: false
+    default: ""
+  labels:
+    description: >-
+      The pull request's labels as a JSON list; a label `red-on-logic: not applicable (<reason>)` skips the check.
+      Default the event's labels.
+    required: false
+    default: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run the changed tests against the base's code
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+        CODE_PATHS: ${{ inputs.code-paths }}
+        RUNNER: ${{ inputs.runner }}
+        PYTEST_CMD: ${{ inputs.pytest }}
+        VITEST_CMD: ${{ inputs.vitest }}
+        JEST_CMD: ${{ inputs.jest }}
+        NODE_CMD: ${{ inputs.node }}
+        RUN_CMD: ${{ inputs.command }}
+        TEST_PATHS: ${{ inputs.test-paths }}
+        WORKDIR: ${{ inputs.working-directory }}
+        LABELS: ${{ inputs.labels }}
+      run: bash "$GITHUB_ACTION_PATH/src/red_on_logic/action.sh"
