@@ -30,6 +30,9 @@ args=("--base=$BASE" "--runner=${RUNNER:-auto}")
 [ -n "${NODE_CMD:-}" ] && args+=("--node=$NODE_CMD")
 [ -n "${RUN_CMD:-}" ] && args+=("--command=$RUN_CMD")
 [ -n "${WORKDIR:-}" ] && args+=("--working-directory=$WORKDIR")
+while IFS= read -r pattern; do
+  [ -n "$pattern" ] && args+=("--import-pattern=$pattern")
+done < <(printf '%s\n' "${IMPORT_PATTERNS:-}")
 while IFS= read -r glob; do
   [ -n "$glob" ] && args+=("--code-paths=$glob")
 done < <(printf '%s\n' "${CODE_PATHS:-}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')

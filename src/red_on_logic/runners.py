@@ -179,6 +179,13 @@ def run_pytest(group: Group, root: Path, command: str | None, scratch: Path) -> 
     files = [os.path.relpath(root / f, group.cwd) for f in group.files]
     argv += ["-p", "red_on_logic_pytest_plugin", "--continue-on-collection-errors", "-q"]
     output = _run([*argv, *files], group.cwd, env)
+    if not out.exists() and "while loading conftest" in output:
+        # A shared helper (a conftest and what it imports) failed before any test ran:
+        # every file is red on import, with the helper's error as the reason.
+        errors = [ln[1:].strip() for ln in output.splitlines() if ln.startswith("E ")]
+        reason = errors[-1] if errors else "a conftest failed to load"
+        message = f"conftest failed to load: {reason}"
+        return [Outcome(f, f, "error", message=message, file_level=True) for f in group.files]
     if not out.exists():
         raise _no_report("pytest", output)
     return parse_pytest(out.read_text(), root)

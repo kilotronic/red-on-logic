@@ -418,3 +418,79 @@ def test_a_pytest_internal_failure_is_not_proof(planted: Planted) -> None:
 
     assert code == 1
     assert verdicts(report)["tests/test_calc.py::test_async"] != "proven"
+
+
+def test_a_conftest_that_fails_to_load_on_the_base_is_red_on_import(planted: Planted) -> None:
+    # Pilot finding: a shared helper importing a branch-only name stopped the base run.
+    _base(planted)
+    planted.write("calc.py", CALC_FIXED + "\n\nNEW = 1\n")
+    planted.write("tests/conftest.py", "from calc import NEW  # noqa: F401\n")
+    planted.write(
+        "tests/test_calc.py", EXISTING + "\n\ndef test_new():\n    assert add(1, 1) == 2\n"
+    )
+    planted.commit("feat: new")
+
+    code, report, text = planted.run("--pytest", PYTEST)
+
+    assert code == 1, text
+    assert verdicts(report) == {"tests/test_calc.py::test_new": "red-on-import"}
+    assert "conftest" in text
+
+
+def test_a_cli_rejecting_a_new_option_is_red_on_import(planted: Planted) -> None:
+    # Pilot finding: an old command line refusing a new flag read as a wrong answer.
+    planted.write(
+        "cli.py",
+        "import argparse\n\n\ndef run(argv):\n"
+        "    p = argparse.ArgumentParser(exit_on_error=False)\n"
+        "    try:\n        p.parse_args(argv)\n    except argparse.ArgumentError as e:\n"
+        "        return str(e)\n    return 'ok'\n",
+    )
+    planted.base()
+    planted.write(
+        "cli.py",
+        "import argparse\n\n\ndef run(argv):\n"
+        "    p = argparse.ArgumentParser(exit_on_error=False)\n"
+        "    p.add_argument('--noop', action='store_true')\n"
+        "    try:\n        p.parse_args(argv)\n    except argparse.ArgumentError as e:\n"
+        "        return str(e)\n    return 'ok'\n",
+    )
+    planted.write(
+        "tests/test_cli.py",
+        "from cli import run\n\n\ndef test_noop():\n    out = run(['--noop'])\n"
+        "    assert out == 'ok', f'cli: unrecognized arguments: {out}'\n",
+    )
+    planted.commit("feat: --noop")
+
+    code, report, _ = planted.run("--pytest", PYTEST)
+
+    assert code == 1
+    assert verdicts(report) == {"tests/test_cli.py::test_noop": "red-on-import"}
+
+
+SERVICE = "\n\ndef call(name):\n    return 'ok' if name in KNOWN else f'unknown service: {name}'\n"
+
+
+def test_a_repo_pattern_marks_its_own_missing_names(planted: Planted) -> None:
+    planted.write(
+        "svc.py",
+        "KNOWN = {'a'}\n" + SERVICE,
+    )
+    planted.base()
+    planted.write(
+        "svc.py",
+        "KNOWN = {'a', 'b'}\n" + SERVICE,
+    )
+    planted.write(
+        "tests/test_svc.py",
+        "from svc import call\n\n\ndef test_b():\n    out = call('b')\n"
+        "    assert out == 'ok', out\n",
+    )
+    planted.commit("feat: b")
+
+    proven, _, _ = planted.run("--pytest", PYTEST)
+    code, report, _ = planted.run("--pytest", PYTEST, "--import-pattern", "unknown service")
+
+    assert proven == 0
+    assert code == 1
+    assert verdicts(report) == {"tests/test_svc.py::test_b": "red-on-import"}

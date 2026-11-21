@@ -76,6 +76,11 @@ red-on-logic: not proven. The new or changed test does not fail on the base's co
                               ImportError: cannot import name 'mul' from 'calc'
 ```
 
+An old command line that rejects a word the branch added (argparse's `unrecognized arguments:` or `invalid
+choice:`, even inside an assertion's message) is red on import too, and so is a shared helper (a `conftest.py` and
+what it imports) that fails to load on the base. A project with its own words for an unknown name (`unknown
+service: x`) lists them in `import-patterns`.
+
 A pull request that only adds a new function, with no change to existing behaviour, is red on import by nature.
 Either test behaviour the old code gets wrong, land the new name first (with a wrong answer) in its own pull
 request, or skip the check with a reason.
@@ -180,6 +185,10 @@ Do not edit files while it runs: the restore resets every tracked file to the he
 - A build step between the code and the tests (a compiled extension, a bundle the tests import) is not re-run on the
   base. Use `runner: command` with the build in the command.
 - "At least one": a pull request with one real test and several vacuous ones passes; the vacuous ones are listed.
+  A changed helper at the top of a test file judges every test in it, so an old test there that fails on the base
+  can carry an empty new one.
+- Dependency-bot pull requests have no tests and cannot add a trailer: skip the job for them in the workflow
+  (`if: github.actor != 'dependabot[bot]'`).
 
 ## Development
 
