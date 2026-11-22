@@ -131,7 +131,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       # ... set up the project so its tests run, as the test job does ...
-      - uses: kilotronic/red-on-logic@<commit of the release> # v1.0.0
+      - uses: kilotronic/red-on-logic@<commit of the release> # v1.1.0
         # with:
         #   pytest: uv run --no-sync pytest
         #   runner: command
@@ -177,7 +177,7 @@ input it does nothing. The result also goes to the job summary.
 ## Use as a command
 
 ```bash
-pip install git+https://github.com/kilotronic/red-on-logic.git@v1.0.0
+pip install git+https://github.com/kilotronic/red-on-logic.git@v1.1.0
 red-on-logic                          # this branch against origin/HEAD, origin/main or main
 red-on-logic --base main --pytest "uv run --no-sync pytest"
 red-on-logic --json report.json --summary summary.md
