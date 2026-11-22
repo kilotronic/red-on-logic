@@ -58,6 +58,7 @@ inputs:
     description: >-
       Regular expressions, one per line: a failure on the base whose message matches is red on import, not a wrong
       answer. For a repository's own words for a name the old code does not know (e.g. `unknown service`).
+      Each line is trimmed: write `\s` for a space at either end.
     required: false
     default: ""
   working-directory:

@@ -88,10 +88,12 @@ import-patterns: |
   unrecognized arguments
   invalid choice
   ^unknown service
+  ^SystemExit: 2$
 ```
 
 A pattern is tried on the failure's first line (up to 300 characters) as stored, `AssertionError: unknown
-service: b`, and on the text after its type, so `^` anchors work. A test that checks only an exit code (`assert
+service: b`, and on the text after its type, so `^` anchors work. A test that calls `main([...])` directly sees
+only argparse's exit (`SystemExit: 2`; the "unrecognized arguments" text goes to stderr), hence the last line. A test that checks only an exit code (`assert
 r.returncode == 0`) never shows the command line's words, so it reads as proof: assert on the output too.
 
 A pull request that only adds a new function, with no change to existing behaviour, is red on import by nature.
