@@ -222,6 +222,14 @@ def test_js_touched_finds_a_title_without_a_line() -> None:
         ("Failed", "DID NOT RAISE <class 'TimeoutError'>", "assertion"),
         ("Failed", "the request timed out", "assertion"),
         ("TimeoutError", "timed out", "crash"),
+        # A project's own wording of a bad choice can be a real wrong answer: only the
+        # repository's import patterns turn such words into red on import.
+        (
+            "AssertionError",
+            "argument cmd: invalid choice: 'new' (choose from 'a', 'b')",
+            "assertion",
+        ),
+        ("SystemExit", "2", "crash"),
     ],
 )
 def test_python_kind(exc: str, message: str, want: str) -> None:

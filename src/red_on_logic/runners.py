@@ -171,14 +171,46 @@ def run_pytest(group: Group, root: Path, command: str | None, scratch: Path) -> 
     plugin_dir = scratch / "plugin"
     plugin_dir.mkdir(exist_ok=True)
     shutil.copy(HERE / "pytest_plugin.py", plugin_dir / "red_on_logic_pytest_plugin.py")
+    outcomes = _pytest_once(group.files, group, root, command, scratch, plugin_dir)
+    if outcomes is not None:
+        return outcomes
+    if len(group.files) > 1:
+        # One folder's conftest stops the whole session: run each file alone, so only
+        # the files under the failing conftest are red on import.
+        found: list[Outcome] = []
+        for f in group.files:
+            found += _pytest_once((f,), group, root, command, scratch, plugin_dir) or []
+        return found
+    return []
+
+
+def _pytest_once(
+    files: tuple[str, ...],
+    group: Group,
+    root: Path,
+    command: str | None,
+    scratch: Path,
+    plugin_dir: Path,
+) -> list[Outcome] | None:
+    """The outcomes of one pytest session, or None when a conftest failed to load in a
+    session of several files (the caller splits it). A conftest failure in a one-file
+    session makes that file red on import, with the conftest's error as the reason."""
     out = scratch / "pytest.jsonl"
+    out.unlink(missing_ok=True)
     env = _env(scratch)
     env["RED_ON_LOGIC_OUT"] = str(out)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(plugin_dir), env.get("PYTHONPATH")]))
     argv = shlex.split(command or default_pytest(root, group.cwd))
-    files = [os.path.relpath(root / f, group.cwd) for f in group.files]
+    paths = [os.path.relpath(root / f, group.cwd) for f in files]
     argv += ["-p", "red_on_logic_pytest_plugin", "--continue-on-collection-errors", "-q"]
-    output = _run([*argv, *files], group.cwd, env)
+    output = _run([*argv, *paths], group.cwd, env)
+    if not out.exists() and "while loading conftest" in output:
+        if len(files) > 1:
+            return None
+        errors = [ln[1:].strip() for ln in output.splitlines() if ln.startswith("E ")]
+        reason = errors[-1] if errors else "a conftest failed to load"
+        message = f"conftest failed to load: {reason}"
+        return [Outcome(f, f, "error", message=message, file_level=True) for f in files]
     if not out.exists():
         raise _no_report("pytest", output)
     return parse_pytest(out.read_text(), root)

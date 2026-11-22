@@ -20,12 +20,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
 import sys
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import FrameType
 
@@ -177,6 +179,36 @@ def _run_all(groups: list[Group], root: Path, commands: Commands) -> dict[str, l
     return found
 
 
+def compile_patterns(patterns: list[str]) -> list[re.Pattern[str]]:
+    try:
+        return [re.compile(p) for p in patterns]
+    except re.error as e:
+        raise ToolError(f"--import-pattern is not a valid regular expression: {e}") from e
+
+
+def _mark_shapes(
+    found: dict[str, list[Outcome]], patterns: list[re.Pattern[str]]
+) -> dict[str, list[Outcome]]:
+    """A base failure whose message matches one of the repository's own patterns (its
+    words for a name the old code does not know) is red on import, not a wrong answer.
+    A pattern is tried on the message as stored (`AssertionError: unknown service: b`)
+    and on the text after its type, so `^unknown service` matches too."""
+
+    def matches(message: str) -> bool:
+        bare = message.split(": ", 1)[1] if ": " in message else message
+        return any(p.search(message) or p.search(bare) for p in patterns)
+
+    return {
+        f: [
+            replace(o, status="error", kind="shape")
+            if o.status == "failed" and matches(o.message)
+            else o
+            for o in outcomes
+        ]
+        for f, outcomes in found.items()
+    }
+
+
 def _judged(
     runner: str, source: str, outcomes: list[Outcome], changed: set[int] | None
 ) -> list[bool]:
@@ -219,6 +251,7 @@ def _rows(
 
 
 def check(args: argparse.Namespace) -> Report:
+    patterns = compile_patterns(args.import_pattern)
     root = Path(git(Path(args.repo), "rev-parse", "--show-toplevel").strip())
     head = git(root, "rev-parse", "HEAD").strip()
     base_ref = args.base or _default_base(root)
@@ -284,6 +317,8 @@ def check(args: argparse.Namespace) -> Report:
         head_outcomes = _run_all(groups, root, commands)
         with base_code(root, base, head, code):
             base_outcomes = _run_all(groups, root, commands)
+    if patterns:
+        base_outcomes = _mark_shapes(base_outcomes, patterns)
     report.rows = _rows(groups, root, head_outcomes, base_outcomes, lines, added)
     judged = [r for r in report.rows if r.judged]
     if any(verdict_of(r) == "proven" for r in judged):
@@ -343,6 +378,13 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         action="append",
         default=[],
         help="a glob of files that are code though not source (templates, SQL); repeatable",
+    )
+    p.add_argument(
+        "--import-pattern",
+        action="append",
+        default=[],
+        help="a regular expression: a base failure whose message matches is red on import"
+        " (the repository's words for an unknown name, e.g. 'unknown service'); repeatable",
     )
     p.add_argument("--working-directory", help="with --runner, where the runner runs")
     p.add_argument("--label", action="append", default=[], help="a pull request label (repeatable)")
