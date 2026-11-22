@@ -440,22 +440,13 @@ def test_a_conftest_that_fails_to_load_on_the_base_is_red_on_import(planted: Pla
 def test_a_cli_rejecting_a_new_option_is_red_on_import_by_pattern(planted: Planted) -> None:
     # Pilot finding: an old command line refusing a new flag read as a wrong answer. The
     # project names its command line's words for it.
-    planted.write(
-        "cli.py",
-        "import argparse\n\n\ndef run(argv):\n"
-        "    p = argparse.ArgumentParser(exit_on_error=False)\n"
-        "    try:\n        p.parse_args(argv)\n    except argparse.ArgumentError as e:\n"
-        "        return str(e)\n    return 'ok'\n",
+    cli = (
+        "OPTIONS = {opts}\n\n\ndef run(argv):\n    bad = [a for a in argv if a not in OPTIONS]\n"
+        "    return f'unrecognized arguments: {{bad}}' if bad else 'ok'\n"
     )
+    planted.write("cli.py", cli.format(opts="{'--all'}"))
     planted.base()
-    planted.write(
-        "cli.py",
-        "import argparse\n\n\ndef run(argv):\n"
-        "    p = argparse.ArgumentParser(exit_on_error=False)\n"
-        "    p.add_argument('--noop', action='store_true')\n"
-        "    try:\n        p.parse_args(argv)\n    except argparse.ArgumentError as e:\n"
-        "        return str(e)\n    return 'ok'\n",
-    )
+    planted.write("cli.py", cli.format(opts="{'--all', '--noop'}"))
     planted.write(
         "tests/test_cli.py",
         "from cli import run\n\n\ndef test_noop():\n    out = run(['--noop'])\n"
