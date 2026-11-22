@@ -63,16 +63,9 @@ JS_TIMEOUT = re.compile(
 )
 
 
-# A command line that rejects a word the branch added (argparse's words), in whatever
-# failure carries it, an assertion's message included: the old code lacks that name.
-SHAPE_ANYWHERE = re.compile(r"unrecognized arguments:|invalid choice:")
-
-
 def python_kind(exc: str, message: str, *, assertion: bool) -> str:
     """`exc` is the exception's type name; `assertion` whether it is an AssertionError or
     pytest's own failure (pytest.fail, pytest.raises that saw nothing)."""
-    if SHAPE_ANYWHERE.search(message) or (exc == "SystemExit" and message == "2"):
-        return "shape"  # exit 2: argparse refusing an option or command the base lacks
     if exc == "Failed" and PY_NOT_LOGIC.search(message):
         return "shape"
     if assertion:
@@ -87,8 +80,6 @@ def python_kind(exc: str, message: str, *, assertion: bool) -> str:
 def js_kind(message: str) -> str:
     """`message` is the failure's first line, `Type: text`, as vitest, jest and node print it."""
     first = message.strip().splitlines()[0] if message.strip() else ""
-    if SHAPE_ANYWHERE.search(first):
-        return "shape"
     if JS_ASSERTION.search(first):
         return "assertion"
     if JS_TIMEOUT.search(first):

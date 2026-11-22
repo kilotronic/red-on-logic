@@ -179,17 +179,29 @@ def _run_all(groups: list[Group], root: Path, commands: Commands) -> dict[str, l
     return found
 
 
-def _mark_shapes(found: dict[str, list[Outcome]], patterns: list[str]) -> dict[str, list[Outcome]]:
-    """A base failure whose message matches one of the repository's own patterns (its
-    words for a name the old code does not know) is red on import, not a wrong answer."""
+def compile_patterns(patterns: list[str]) -> list[re.Pattern[str]]:
     try:
-        compiled = [re.compile(p) for p in patterns]
+        return [re.compile(p) for p in patterns]
     except re.error as e:
         raise ToolError(f"--import-pattern is not a valid regular expression: {e}") from e
+
+
+def _mark_shapes(
+    found: dict[str, list[Outcome]], patterns: list[re.Pattern[str]]
+) -> dict[str, list[Outcome]]:
+    """A base failure whose message matches one of the repository's own patterns (its
+    words for a name the old code does not know) is red on import, not a wrong answer.
+    A pattern is tried on the message as stored (`AssertionError: unknown service: b`)
+    and on the text after its type, so `^unknown service` matches too."""
+
+    def matches(message: str) -> bool:
+        bare = message.split(": ", 1)[1] if ": " in message else message
+        return any(p.search(message) or p.search(bare) for p in patterns)
+
     return {
         f: [
             replace(o, status="error", kind="shape")
-            if o.status == "failed" and any(c.search(o.message) for c in compiled)
+            if o.status == "failed" and matches(o.message)
             else o
             for o in outcomes
         ]
@@ -239,6 +251,7 @@ def _rows(
 
 
 def check(args: argparse.Namespace) -> Report:
+    patterns = compile_patterns(args.import_pattern)
     root = Path(git(Path(args.repo), "rev-parse", "--show-toplevel").strip())
     head = git(root, "rev-parse", "HEAD").strip()
     base_ref = args.base or _default_base(root)
@@ -304,8 +317,8 @@ def check(args: argparse.Namespace) -> Report:
         head_outcomes = _run_all(groups, root, commands)
         with base_code(root, base, head, code):
             base_outcomes = _run_all(groups, root, commands)
-    if args.import_pattern:
-        base_outcomes = _mark_shapes(base_outcomes, args.import_pattern)
+    if patterns:
+        base_outcomes = _mark_shapes(base_outcomes, patterns)
     report.rows = _rows(groups, root, head_outcomes, base_outcomes, lines, added)
     judged = [r for r in report.rows if r.judged]
     if any(verdict_of(r) == "proven" for r in judged):

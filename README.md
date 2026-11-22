@@ -76,10 +76,23 @@ red-on-logic: not proven. The new or changed test does not fail on the base's co
                               ImportError: cannot import name 'mul' from 'calc'
 ```
 
-An old command line that rejects a word the branch added (argparse's `unrecognized arguments:` or `invalid
-choice:`, even inside an assertion's message) is red on import too, and so is a shared helper (a `conftest.py` and
-what it imports) that fails to load on the base. A project with its own words for an unknown name (`unknown
-service: x`) lists them in `import-patterns`.
+A shared helper (a `conftest.py` and what it imports) that fails to load on the base makes the files under it red
+on import; files under other folders are run alone and judged as usual.
+
+A test of a new command-line option or subcommand fails on the old code because the old command line refuses it.
+That reads as a wrong answer unless the project names its command line's words for it in `import-patterns`, one
+regular expression per line, for example:
+
+```yaml
+import-patterns: |
+  unrecognized arguments
+  invalid choice
+  ^unknown service
+```
+
+A pattern is tried on the failure's first line (up to 300 characters) as stored, `AssertionError: unknown
+service: b`, and on the text after its type, so `^` anchors work. A test that checks only an exit code (`assert
+r.returncode == 0`) never shows the command line's words, so it reads as proof: assert on the output too.
 
 A pull request that only adds a new function, with no change to existing behaviour, is red on import by nature.
 Either test behaviour the old code gets wrong, land the new name first (with a wrong answer) in its own pull

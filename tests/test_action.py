@@ -153,3 +153,30 @@ def test_an_explicit_base_input_is_kept(planted: Planted, tmp_path: Path) -> Non
 
     assert code == 0, output
     assert f"Base {stale[:12]}" in output
+
+
+def test_import_patterns_are_one_per_line_and_trimmed(planted: Planted, tmp_path: Path) -> None:
+    planted.write(
+        "svc.py", "def call(n):\n    return 'ok' if n == 'a' else f'unknown service: {n}'\n"
+    )
+    base = planted.base()
+    planted.write(
+        "svc.py", "def call(n):\n    return 'ok' if n in 'ab' else f'unknown service: {n}'\n"
+    )
+    planted.write(
+        "tests/test_svc.py",
+        "from svc import call\n\n\ndef test_b():\n    out = call('b')\n"
+        "    assert out == 'ok', out\n",
+    )
+    planted.commit("feat")
+
+    code, output, _ = _step(
+        planted,
+        tmp_path,
+        BASE=base,
+        PYTEST_CMD=PYTEST,
+        IMPORT_PATTERNS="  \r\n  ^unknown service  \r\nnever, matches\r\n",
+    )
+
+    assert code == 1, output
+    assert "red on import" in output
